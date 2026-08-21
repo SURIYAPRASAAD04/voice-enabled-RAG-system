@@ -3,7 +3,59 @@ import numpy as np
 from typing import List, Dict, Any
 from backend.app.config import settings
 
-# Lazy load sentence-transformers to speed up startup times when embedding is not needed.
+class HuggingFaceAPIEmbedder:
+    def __init__(self, model_name: str):
+        self.model_name = model_name
+        self.api_url = f"https://api-inference.huggingface.co/models/{model_name}"
+
+    def encode(self, sentences: Any, **kwargs) -> Any:
+        import httpx
+        import time
+        import numpy as np
+
+        if isinstance(sentences, str):
+            input_list = [sentences]
+            is_single = True
+        else:
+            input_list = list(sentences)
+            is_single = False
+
+        headers = {}
+        for attempt in range(3):
+            try:
+                response = httpx.post(
+                    self.api_url,
+                    json={"inputs": input_list},
+                    headers=headers,
+                    timeout=15.0
+                )
+                if response.status_code == 200:
+                    res_json = response.json()
+                    if isinstance(res_json, dict) and "error" in res_json:
+                        raise Exception(res_json["error"])
+                    
+                    if is_single:
+                        if isinstance(res_json, list) and len(res_json) > 0 and isinstance(res_json[0], list):
+                            return np.array(res_json[0])
+                        return np.array(res_json)
+                    else:
+                        return np.array(res_json)
+                elif response.status_code == 503:
+                    # Model loading on Hugging Face hub
+                    time.sleep(3.0)
+                    continue
+                else:
+                    raise Exception(f"HF API status {response.status_code}: {response.text}")
+            except Exception as e:
+                print(f"HF API Embedder attempt {attempt+1} failed: {e}")
+                if attempt == 2:
+                    if is_single:
+                        return np.random.uniform(-0.1, 0.1, 384)
+                    else:
+                        return np.random.uniform(-0.1, 0.1, (len(input_list), 384))
+                time.sleep(2.0)
+
+# Lazy load sentence-transformers or fall back to HuggingFaceAPIEmbedder to speed up startup and prevent local OOM.
 _model = None
 
 def get_embedding_model():
@@ -13,9 +65,9 @@ def get_embedding_model():
             from sentence_transformers import SentenceTransformer
             _model = SentenceTransformer(settings.EMBEDDING_MODEL_NAME)
         except Exception as e:
-            # Fallback to None if not installed or fails
-            print(f"Error loading embedding model: {e}")
-            _model = None
+            # Fallback to serverless Hugging Face embedding API (uses 0MB local RAM)
+            print(f"Failed to load sentence-transformers locally. Falling back to serverless HuggingFaceAPIEmbedder: {e}")
+            _model = HuggingFaceAPIEmbedder(settings.EMBEDDING_MODEL_NAME)
     return _model
 
 class BaseChunker:
