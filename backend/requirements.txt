@@ -11,3 +11,5 @@ datasets==2.19.1
 pytest==8.2.1
 python-multipart==0.0.9
 onnxruntime==1.17.3
+transformers==4.40.0
+huggingface-hub==0.22.2
