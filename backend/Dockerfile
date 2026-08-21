@@ -32,4 +32,4 @@ ENV PYTHONPATH=/workspace
 EXPOSE 8000
 
 # Run FastAPI from /workspace, resolving the backend package
-CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
