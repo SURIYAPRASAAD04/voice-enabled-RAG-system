@@ -35,11 +35,39 @@ class HuggingFaceAPIEmbedder:
                         raise Exception(res_json["error"])
                     
                     if is_single:
-                        if isinstance(res_json, list) and len(res_json) > 0 and isinstance(res_json[0], list):
-                            return np.array(res_json[0])
-                        return np.array(res_json)
+                        arr = np.array(res_json)
+                        # Handle token-level hidden states [1, seq_len, 384]
+                        if len(arr.shape) == 3:
+                            token_vectors = arr[0]
+                            mean_vec = np.mean(token_vectors, axis=0)
+                        elif len(arr.shape) == 2:
+                            if arr.shape[0] == 1:
+                                mean_vec = arr[0]
+                            else:
+                                mean_vec = np.mean(arr, axis=0)
+                        else:
+                            mean_vec = arr
+                        
+                        # L2 Normalization
+                        norm = np.linalg.norm(mean_vec)
+                        if norm > 0:
+                            mean_vec = mean_vec / norm
+                        return mean_vec
                     else:
-                        return np.array(res_json)
+                        out_vectors = []
+                        for item in res_json:
+                            arr = np.array(item)
+                            if len(arr.shape) == 2:
+                                mean_vec = np.mean(arr, axis=0)
+                            else:
+                                mean_vec = arr
+                            
+                            # L2 Normalization
+                            norm = np.linalg.norm(mean_vec)
+                            if norm > 0:
+                                mean_vec = mean_vec / norm
+                            out_vectors.append(mean_vec)
+                        return np.array(out_vectors)
                 elif response.status_code == 503:
                     # Model loading on Hugging Face hub
                     time.sleep(3.0)
