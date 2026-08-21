@@ -159,6 +159,10 @@ _onnx_error = None
 
 def get_embedding_model():
     global _model, _onnx_error
+    if settings.DISABLE_LOCAL_EMBEDDINGS:
+        logger.info("Local embeddings are explicitly disabled via DISABLE_LOCAL_EMBEDDINGS setting.")
+        return None
+        
     if _model is None:
         try:
             from sentence_transformers import SentenceTransformer

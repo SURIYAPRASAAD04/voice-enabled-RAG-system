@@ -81,8 +81,7 @@ def populate_in_memory_data(client: QdrantClient):
     
     model = get_embedding_model()
     if model is None:
-        logger.error("Could not load embedding model for in-memory population. Vectors will be empty.")
-        return
+        logger.warning("Could not load embedding model for in-memory population. Chunks will be populated with zero-vectors to enable keyword-only fallback search.")
         
     fixed_chunker = FixedSizeChunker(chunk_size=400, chunk_overlap=80)
     points = []
@@ -104,7 +103,11 @@ def populate_in_memory_data(client: QdrantClient):
             if "e5" in settings.EMBEDDING_MODEL_NAME.lower():
                 emb_text = f"passage: {chunk_text}"
                 
-            vector = model.encode(emb_text).tolist()
+            if model is not None:
+                vector = model.encode(emb_text).tolist()
+            else:
+                vector = [0.0] * VECTOR_SIZE
+                
             points.append(
                 models.PointStruct(
                     id=chunk_id,

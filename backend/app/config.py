@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     
     # RAG Settings
     EMBEDDING_MODEL_NAME: str = "intfloat/multilingual-e5-small"
+    DISABLE_LOCAL_EMBEDDINGS: bool = False
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:8000"
 
     @property
