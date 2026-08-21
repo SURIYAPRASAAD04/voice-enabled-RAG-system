@@ -155,9 +155,10 @@ class HuggingFaceAPIEmbedder:
 
 # Lazy load sentence-transformers, fall back to LocalONNXEmbedder, then HuggingFaceAPIEmbedder
 _model = None
+_onnx_error = None
 
 def get_embedding_model():
-    global _model
+    global _model, _onnx_error
     if _model is None:
         try:
             from sentence_transformers import SentenceTransformer
@@ -167,6 +168,7 @@ def get_embedding_model():
             try:
                 _model = LocalONNXEmbedder()
             except Exception as onnx_err:
+                _onnx_error = str(onnx_err)
                 logger.warning(f"Failed to initialize LocalONNXEmbedder ({onnx_err}). Falling back to HuggingFaceAPIEmbedder...")
                 _model = HuggingFaceAPIEmbedder(settings.EMBEDDING_MODEL_NAME)
     return _model

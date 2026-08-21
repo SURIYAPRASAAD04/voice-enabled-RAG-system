@@ -282,7 +282,7 @@ async def clear_metrics_endpoint():
 
 @app.get("/api/debug")
 async def debug_endpoint():
-    from backend.app.chunking import get_embedding_model
+    from backend.app.chunking import get_embedding_model, _onnx_error
     from backend.app.retrieval import get_qdrant_client, COLLECTION_NAME
     import numpy as np
     
@@ -340,6 +340,7 @@ async def debug_endpoint():
             
     return {
         "active_model_type": model_type,
+        "onnx_error": _onnx_error,
         "qdrant_info": qdrant_info,
         "test_results": test_results,
         "settings": {
