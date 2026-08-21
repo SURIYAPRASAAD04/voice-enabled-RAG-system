@@ -1,12 +1,82 @@
 import re
+import logging
 import numpy as np
 from typing import List, Dict, Any
 from backend.app.config import settings
 
+logger = logging.getLogger(__name__)
+
+class LocalONNXEmbedder:
+    def __init__(self, model_id: str = "Xenova/multilingual-e5-small"):
+        import onnxruntime as ort
+        from transformers import AutoTokenizer
+        from huggingface_hub import hf_hub_download
+        
+        logger.info(f"Initializing local ONNX embedder with model: {model_id}")
+        self.tokenizer = AutoTokenizer.from_pretrained(model_id)
+        
+        # Download ONNX model file from HF Hub
+        model_path = hf_hub_download(repo_id=model_id, filename="onnx/model.onnx")
+        
+        # Load ONNX session with CPU execution provider
+        self.session = ort.InferenceSession(
+            model_path, 
+            providers=["CPUExecutionProvider"]
+        )
+        logger.info("Local ONNX embedder session initialized successfully.")
+
+    def encode(self, sentences: Any, **kwargs) -> Any:
+        import numpy as np
+        
+        if isinstance(sentences, str):
+            input_list = [sentences]
+            is_single = True
+        else:
+            input_list = list(sentences)
+            is_single = False
+
+        # Tokenize sentences
+        encoded = self.tokenizer(
+            input_list,
+            padding=True,
+            truncation=True,
+            max_length=512,
+            return_tensors="np"
+        )
+        
+        onnx_inputs = {
+            "input_ids": encoded["input_ids"].astype(np.int64),
+            "attention_mask": encoded["attention_mask"].astype(np.int64)
+        }
+        if "token_type_ids" in encoded:
+            onnx_inputs["token_type_ids"] = encoded["token_type_ids"].astype(np.int64)
+        else:
+            onnx_inputs["token_type_ids"] = np.zeros_like(encoded["input_ids"]).astype(np.int64)
+
+        # Run ONNX inference
+        outputs = self.session.run(None, onnx_inputs)
+        last_hidden_state = outputs[0]  # Shape: [batch_size, seq_len, 384]
+        attention_mask = encoded["attention_mask"]
+
+        # Mean Pooling over attention mask
+        input_mask_expanded = np.expand_dims(attention_mask, axis=-1).astype(float)
+        sum_embeddings = np.sum(last_hidden_state * input_mask_expanded, axis=1)
+        sum_mask = np.clip(np.sum(input_mask_expanded, axis=1), a_min=1e-9, a_max=None)
+        mean_embeddings = sum_embeddings / sum_mask
+
+        # L2 Normalization
+        norms = np.linalg.norm(mean_embeddings, axis=1, keepdims=True)
+        norms = np.clip(norms, a_min=1e-9, a_max=None)
+        normalized_embeddings = mean_embeddings / norms
+
+        if is_single:
+            return normalized_embeddings[0]
+        return normalized_embeddings
+
 class HuggingFaceAPIEmbedder:
     def __init__(self, model_name: str):
         self.model_name = model_name
-        self.api_url = f"https://api-inference.huggingface.co/models/{model_name}"
+        self.api_url = f"https://api-inference.huggingface.co/pipeline/feature-extraction/{model_name}"
 
     def encode(self, sentences: Any, **kwargs) -> Any:
         import httpx
@@ -83,7 +153,7 @@ class HuggingFaceAPIEmbedder:
                         return np.random.uniform(-0.1, 0.1, (len(input_list), 384))
                 time.sleep(2.0)
 
-# Lazy load sentence-transformers or fall back to HuggingFaceAPIEmbedder to speed up startup and prevent local OOM.
+# Lazy load sentence-transformers, fall back to LocalONNXEmbedder, then HuggingFaceAPIEmbedder
 _model = None
 
 def get_embedding_model():
@@ -93,9 +163,12 @@ def get_embedding_model():
             from sentence_transformers import SentenceTransformer
             _model = SentenceTransformer(settings.EMBEDDING_MODEL_NAME)
         except Exception as e:
-            # Fallback to serverless Hugging Face embedding API (uses 0MB local RAM)
-            print(f"Failed to load sentence-transformers locally. Falling back to serverless HuggingFaceAPIEmbedder: {e}")
-            _model = HuggingFaceAPIEmbedder(settings.EMBEDDING_MODEL_NAME)
+            logger.info(f"Failed to load sentence-transformers locally ({e}). Trying LocalONNXEmbedder fallback...")
+            try:
+                _model = LocalONNXEmbedder()
+            except Exception as onnx_err:
+                logger.warning(f"Failed to initialize LocalONNXEmbedder ({onnx_err}). Falling back to HuggingFaceAPIEmbedder...")
+                _model = HuggingFaceAPIEmbedder(settings.EMBEDDING_MODEL_NAME)
     return _model
 
 class BaseChunker:
