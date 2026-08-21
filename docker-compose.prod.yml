@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  backend:
+    environment:
+      - ENV=production
+      - PYTHONUNBUFFERED=1
+    command: ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4", "--log-level", "info"]
+
+  frontend:
+    environment:
+      - NODE_ENV=production
+    command: ["npx", "next", "start", "-p", "3000"]

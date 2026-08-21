@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.venv/
+venv/
+env/
+backend/data/*.db
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+build/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment / Credentials
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# OS Files
+.DS_Store
+Thumbs.db
