@@ -279,3 +279,72 @@ async def clear_metrics_endpoint():
     except Exception as e:
         logger.error(f"Failed to clear metrics database: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/debug")
+async def debug_endpoint():
+    from backend.app.chunking import get_embedding_model
+    from backend.app.retrieval import get_qdrant_client, COLLECTION_NAME
+    import numpy as np
+    
+    # 1. Check embedding model type
+    model = get_embedding_model()
+    model_type = "None"
+    if model is not None:
+        model_type = model.__class__.__name__
+        
+    # 2. Check Qdrant status
+    client = get_qdrant_client()
+    qdrant_info = {}
+    try:
+        collections = client.get_collections()
+        qdrant_info["collections"] = [c.name for c in collections.collections]
+        
+        # Get count
+        if COLLECTION_NAME in qdrant_info["collections"]:
+            count_res = client.count(collection_name=COLLECTION_NAME)
+            qdrant_info["points_count"] = count_res.count
+            
+            # Fetch a point
+            scroll_res, _ = client.scroll(collection_name=COLLECTION_NAME, limit=1, with_vectors=True)
+            if scroll_res:
+                qdrant_info["sample_vector_len"] = len(scroll_res[0].vector) if scroll_res[0].vector else 0
+                qdrant_info["sample_payload"] = scroll_res[0].payload
+    except Exception as e:
+        qdrant_info["error"] = str(e)
+        
+    # 3. Test encode and search
+    test_results = {}
+    if model is not None:
+        try:
+            # Test encoding
+            test_query = "Who can participate in Hacker House Goa?"
+            emb_text = f"query: {test_query}"
+            vec = model.encode(emb_text).tolist()
+            test_results["vector_len"] = len(vec)
+            test_results["vector_norm"] = float(np.linalg.norm(vec))
+            test_results["vector_sample"] = vec[:5]
+            
+            # Test search similarity
+            if COLLECTION_NAME in qdrant_info.get("collections", []):
+                search_res = client.search(
+                    collection_name=COLLECTION_NAME,
+                    query_vector=vec,
+                    limit=2
+                )
+                test_results["search_hits"] = [
+                    {"id": h.id, "score": float(h.score), "text": h.payload.get("text")[:50] + "..." if h.payload.get("text") else "..."} 
+                    for h in search_res
+                ]
+        except Exception as e:
+            test_results["error"] = str(e)
+            
+    return {
+        "active_model_type": model_type,
+        "qdrant_info": qdrant_info,
+        "test_results": test_results,
+        "settings": {
+            "QDRANT_HOST": settings.QDRANT_HOST,
+            "QDRANT_PORT": settings.QDRANT_PORT,
+            "EMBEDDING_MODEL_NAME": settings.EMBEDDING_MODEL_NAME,
+        }
+    }
